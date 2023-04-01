@@ -1,18 +1,21 @@
 import argparse
-import gradio as gr
+import datetime
 import gc
-from torch.utils.tensorboard import SummaryWriter
-import os
 import json
+import math
+import os
+from typing import Type
+
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
-import pandas as pd
-import numpy as np
-import math
-from typing import Type
+from torch.utils.tensorboard import SummaryWriter
+
+import gradio as gr
 
 
 # Define the command-line arguments
@@ -62,9 +65,16 @@ class GPTConfig:
         training_config = config['training']
         self.batch_size = training_config['batch_size']
         self.training_data_path = training_config['training_data_path']
+        self.save_folder = training_config['save_folder']
         self.learning_rate = training_config['learning_rate']
         self.num_steps = training_config['num_steps']
         self.val_interval = training_config['val_interval']
+
+        # Generation hyperparameters
+        generation_config = config['generation']
+        self.top_k = generation_config['top_k']
+        self.top_p = generation_config['top_p']
+        self.temp = generation_config['temp']
 
         # Checkpoint restore configuration
         self.restore_path = config['restore_path']
@@ -95,7 +105,7 @@ class TextDataset(Dataset):
         return x, y
 
 
-def load_dataset(data_path, val, context_size):
+def load_dataset(data_path, context_size):
     with open(data_path, 'r', encoding='utf-8') as f:
         text = f.read()
 
@@ -112,7 +122,7 @@ def load_dataset(data_path, val, context_size):
     train_dataset = TextDataset(train_data, context_size)
     test_dataset = TextDataset(test_data, context_size)
     val_dataset = TextDataset(test_data, context_size)
-    return ((train_dataset, test_dataset, val_dataset))
+    return ((train_dataset, val_dataset, test_dataset))
 
 
 class MultiheadAttention(nn.Module):
@@ -267,12 +277,12 @@ def load_checkpoint(model, optimizer, path):
         path (str): The path to the saved checkpoint file.
 
     Returns:
-        Tuple[nn.Module, torch.optim.Optimizer]: The model and optimizer, loaded with the checkpoint state.
+        Tuple[nn.Module, torch.optim.Optimizer, int]: The model and optimizer, loaded with the checkpoint state.
     """
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    return (model, optimizer)
+    return (model, optimizer, checkpoint['steps'])
 
 
 def save_checkpoint(model, optimizer, path, steps):
@@ -304,14 +314,12 @@ def compute_loss(model, criterion, x, y):
     return loss
 
 
-def train(model, optimizer, config: Type[GPTConfig]):
+def train(model, optimizer, config: Type[GPTConfig], global_step):
     model = model.to(device)
     criterion = F.cross_entropy
 
-    global_step = 0
-
-    train_dataset, val_dataset = load_dataset(
-        config.training_data_path, None, model.context_size)
+    train_dataset, val_dataset, _ = load_dataset(
+        config.training_data_path, model.context_size)
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -320,8 +328,8 @@ def train(model, optimizer, config: Type[GPTConfig]):
         num_workers=4
     )
 
-    test_dataloader = DataLoader(
-        test_dataset, batch_size=512, num_workers=4, shuffle=True)
+    val_dataloader = DataLoader(
+        val_dataset, batch_size=512, num_workers=4, shuffle=True)
 
     model.train()
 
@@ -355,7 +363,7 @@ def train(model, optimizer, config: Type[GPTConfig]):
 
                 with torch.no_grad():
                     model.eval()
-                    for x, y in test_dataloader:
+                    for x, y in val_dataloader:
                         x = x.to(device)
                         y = y.to(device)
 
@@ -455,6 +463,7 @@ def generate(model, config, prompt, gen_length, temp=1, top_k=10, top_p=None):
 def main():
     # Parse the command-line arguments
     args = parser.parse_args()
+    # args_is_empty = all(value is None for value in vars(args).values())
 
     config = GPTConfig(args.config)
     # Create the GPT model
@@ -466,7 +475,7 @@ def main():
     model.to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate)
-    if args.gui:
+    if args.gui or args.command is None:
         load_checkpoint(model, optimizer, config.restore_path)
         demo = gr.Interface(
             fn=lambda *args: generate(model, config, *args),
@@ -485,16 +494,26 @@ def main():
         demo.launch()
     elif args.command == "train":
         if args.load_from_restore:
-            load_checkpoint(model, optimizer, path)
+            _, _, global_steps = load_checkpoint(model, optimizer, path)
+        else:
+            global_steps = 0
 
-        train(model, config)
+        train(model, optimizer, config, global_step=global_steps)
+
+        # Persist model
+        timestamp = datetime.datetime.now().isoformat()
+        checkpoint_name = f"model_{timestamp}.pt"
+        save_checkpoint(model, optimizer, path=os.path.join(config.save_folder, checkpoint_name),
+                        steps=global_steps+config.num_steps)
     elif args.command == "eval":
         _, _, test_dataset = load_dataset(
-            config.training_data_path, None, model.context_size)
+            config.training_data_path, model.context_size)
         evaluate_model(model, test_dataset)
     elif args.command == "infer":
+        load_checkpoint(model, optimizer, config.restore_path)
         prompt = args.text
-        generated_text = generate(model, config, prompt, args.length)
+        generated_text = generate(model, config, prompt, args.length,
+                                  temp=config.temp, top_k=config.top_k, top_p=config.top_p)
         print(generated_text)
 
 

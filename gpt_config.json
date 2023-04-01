@@ -1,0 +1,23 @@
+{
+    "architecture": {
+        "embedding_dim": 256,
+        "vocab_size": 128,
+        "context_size": 256,
+        "num_heads": 4,
+        "num_layers": 4
+    },
+    "training": {
+        "batch_size": 64,
+        "training_data_path": "datasets/corpora/shakespeare.txt",
+        "learning_rate": 3e-4,
+        "num_steps": 500, 
+        "val_interval": 100,
+        "save_folder": "checkpoints/candidates"
+    },
+    "generation": {
+        "top_k": 10,
+        "top_p": 1,
+        "temp": 0.8
+    },
+    "restore_path": "checkpoints/model.pt"
+}

@@ -1,4 +1,4 @@
-import gradio
+import gradio as gr
 import gpt
 import torch
 
@@ -15,10 +15,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
 # Load checkpoint
-model, _, _ = load_checkpoint(model, None, config.restore_path)
+model, _, _ = gpt.load_checkpoint(model, None, config.restore_path)
 
 demo = gr.Interface(
-    fn=lambda *args: generate(model, config, *args),
+    fn=lambda *args: gpt.generate(model, config, *args),
     inputs=[
         gr.Textbox(lines=2, placeholder="Prompt here..."),
         gr.Number(precision=0, value=256),

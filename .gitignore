@@ -1,5 +1,5 @@
 # Large files
-checkpoints/
+checkpoints/candidates
 datasets/
 
 # Training Tensorboard runs

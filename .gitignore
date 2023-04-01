@@ -4,6 +4,7 @@ datasets/
 
 # Training Tensorboard runs
 runs/
+flagged/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

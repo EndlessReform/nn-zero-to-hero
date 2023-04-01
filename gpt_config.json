@@ -1,0 +1,17 @@
+{
+    "architecture": {
+        "embedding_dim": 256,
+        "vocab_size": 128,
+        "context_size": 256,
+        "num_heads": 4,
+        "num_layers": 4
+    },
+    "training": {
+        "batch_size": 64,
+        "training_data_path": "datasets/training_data.txt",
+        "learning_rate": 3e-4,
+        "num_steps": 5000, 
+        "val_interval": 100
+    },
+    "restore_path": "checkpoints/model.pt"
+}

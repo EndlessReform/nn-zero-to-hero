@@ -11,14 +11,16 @@ model = gpt.GPT(
 )
 
 # Use GPU if enabled
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 model.to(device)
 
 # Load checkpoint
-model, _, _ = gpt.load_checkpoint(model, None, config.restore_path)
+model, _, _ = gpt.load_checkpoint(
+    model, None, config.restore_path, device=device)
 
 demo = gr.Interface(
-    fn=lambda *args: gpt.generate(model, config, *args),
+    fn=lambda *args: gpt.generate(model, config, *args, device=device),
     inputs=[
         gr.Textbox(lines=2, placeholder="Prompt here..."),
         gr.Number(precision=0, value=256),

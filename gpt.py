@@ -247,7 +247,7 @@ class GPT(nn.Module):
     def forward(self, x):
         tok_embed = self.tok_embed(x)
         pos_embed = self.pos_embed(
-            torch.arange(0, self.context_size, device="cuda")
+            torch.arange(0, self.context_size).to(x.device)
         )
         x = tok_embed + pos_embed
 
@@ -267,7 +267,7 @@ class GPT(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-def load_checkpoint(model, optimizer, path):
+def load_checkpoint(model, optimizer, path, device=torch.device('cuda')):
     """
     Loads a saved checkpoint file into the model and optimizer.
 
@@ -279,7 +279,7 @@ def load_checkpoint(model, optimizer, path):
     Returns:
         Tuple[nn.Module, torch.optim.Optimizer, int]: The model and optimizer, loaded with the checkpoint state.
     """
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -313,6 +313,16 @@ def compute_loss(model, criterion, x, y):
     y = y.view(B*C)
     loss = F.cross_entropy(logits, y.long())
     return loss
+
+
+def print_model_devices(model):
+    print("Model Parameters:")
+    for name, param in model.named_parameters():
+        print(f"{name}: {param.device}")
+
+    print("\nModel Buffers:")
+    for name, buffer in model.named_buffers():
+        print(f"{name}: {buffer.device}")
 
 
 def train(model, optimizer, config: Type[GPTConfig], global_step):
@@ -410,7 +420,7 @@ def evaluate_model(model, val_dataset, block_size=512, max_samples=100000):
     return average_loss
 
 
-def generate(model, config, prompt, gen_length, temp=1, top_k=10, top_p=None):
+def generate(model, config, prompt, gen_length, temp=1, top_k=10, top_p=None, device="cuda"):
     g_cuda = torch.Generator(device=device)
     contexts = torch.tensor(encode_text(prompt), dtype=torch.int32).to(device)
 

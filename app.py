@@ -1,5 +1,6 @@
 import gradio
 import gpt
+import torch
 
 # Intended for HuggingFace Spaces for GPT
 config = gpt.GPTConfig("gpt_config.json")

@@ -9,6 +9,7 @@ from typing import Type
 import numpy as np
 import pandas as pd
 import torch
+from torch.cuda.amp import GradScaler, autocast
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -259,9 +260,10 @@ class GPT(nn.Module):
 
     def infer(self, x):
         with torch.no_grad():
-            self.eval()
-            res = self.forward(x)
-            return (res)
+            with autocast():
+                self.eval()
+                res = self.forward(x)
+                return (res)
 
     def num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -328,6 +330,7 @@ def print_model_devices(model):
 def train(model, optimizer, config: Type[GPTConfig], global_step):
     model = model.to(device)
     criterion = F.cross_entropy
+    scaler = GradScaler()
 
     train_dataset, val_dataset, _ = load_dataset(
         config.training_data_path, model.context_size)
@@ -343,6 +346,7 @@ def train(model, optimizer, config: Type[GPTConfig], global_step):
         val_dataset, batch_size=512, num_workers=4, shuffle=True)
 
     model.train()
+    model = torch.compile(model)
 
     EPOCHS = 1
     STEPS = config.num_steps
@@ -357,12 +361,14 @@ def train(model, optimizer, config: Type[GPTConfig], global_step):
             data = data.to(device)
             target = target.to(device)
 
-            loss = compute_loss(model, criterion, data, target)
+            with autocast():
+                loss = compute_loss(model, criterion, data, target)
 
             # Backward pass
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             writer.add_scalar(
                 "Loss/train", loss.cpu().detach().numpy(), global_step)
@@ -378,11 +384,12 @@ def train(model, optimizer, config: Type[GPTConfig], global_step):
                         x = x.to(device)
                         y = y.to(device)
 
-                        batch_loss = compute_loss(model, criterion, x, y)
-                        total_loss += batch_loss.item() * 512
-                        total_samples += 512
-                        if total_samples > 10:
-                            break
+                        with autocast():
+                            batch_loss = compute_loss(model, criterion, x, y)
+                            total_loss += batch_loss.item() * 512
+                            total_samples += 512
+                            if total_samples > 10:
+                                break
 
                 model.train()
                 average_loss = total_loss / total_samples
